@@ -1,12 +1,12 @@
 package com.example.disklrucacheexample;
 
-import android.support.v7.app.ActionBarActivity;
+import android.app.Activity;
 import android.os.Bundle;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.widget.ImageView;
 
-public class MainActivity extends ActionBarActivity {
+public class MainActivity extends Activity {
 	private ImageView image;
 	private static final String IMAGE_URL = "http://img.my.csdn.net/uploads/201309/01/1378037235_7476.jpg";
 
