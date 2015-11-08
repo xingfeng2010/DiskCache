@@ -4,6 +4,7 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
@@ -15,6 +16,7 @@ import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.os.Environment;
 import android.util.Log;
 
@@ -141,8 +143,20 @@ public class ImageCacheHelper {
 		return sb.toString();
 	}
     
-//    public Bitmap getBitmap(Context context) {
-//    	
-//    	return new Bitmap();
-//    }
+    public Bitmap getBitmap(String imageUrl) {
+        Bitmap bitmap = null;
+    	try {
+    	    String key = hashKeyForDisk(imageUrl);
+    	    DiskLruCache.Snapshot snapShot = mDiskLruCache.get(key);
+    	    if (snapShot != null) {
+    	        InputStream is = snapShot.getInputStream(0);
+    	        bitmap = BitmapFactory.decodeStream(is);
+    	    }
+    	} catch (IOException e) {
+    	    e.printStackTrace();
+    	}
+        
+        
+    	return bitmap;
+    }
 }
