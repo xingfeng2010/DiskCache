@@ -15,15 +15,7 @@ public class MainActivity extends Activity {
 	private ImageView image;
 	private static final String IMAGE_URL = "http://img.my.csdn.net/uploads/201309/01/1378037235_7476.jpg";
 	public static final int REFRESH_MSG = 0x11;
-	private Handler mHandler = new Handler(this.getMainLooper()) {
-        @Override
-        public void handleMessage(Message msg) {
-            if (msg != null) {
-                image.setImageBitmap((Bitmap)msg.obj);
-            }
-        }
-	    
-	};
+	private Handler mHandler;
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
@@ -31,7 +23,17 @@ public class MainActivity extends Activity {
 		setContentView(R.layout.activity_main);
 		image = (ImageView) this.findViewById(R.id.image);
 		
-		ImageCacheHelper cacheHelper = ImageCacheHelper.iniInstance(this.getApplicationContext());
+		mHandler = new Handler(this.getMainLooper()) {
+	        @Override
+	        public void handleMessage(Message msg) {
+	            if (msg != null) {
+	                image.setImageBitmap((Bitmap)msg.obj);
+	            }
+	        }
+		    
+		};
+		
+		ImageCacheHelper cacheHelper = ImageCacheHelper.iniInstance(this.getApplicationContext(),mHandler);
 		Bitmap bitmap = cacheHelper.getBitmap(IMAGE_URL);
 		Log.i(TAG,"onCreate bitmap = " + bitmap);
 		if (bitmap == null) {

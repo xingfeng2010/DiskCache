@@ -18,6 +18,8 @@ import android.content.pm.PackageManager.NameNotFoundException;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Message;
 import android.util.Log;
 
 public class ImageCacheHelper {
@@ -25,19 +27,21 @@ public class ImageCacheHelper {
     private static final long DEFAULT_CACHE_MOUNT = 10 * 1024 * 1024;
     private static final String BITMAP_TYPE = "bitmap";
     private static final String ALGORITHM_MD5 = "MD5";
+    private Handler mHandler;
 
     private static ImageCacheHelper sImageCacheHelper;
     private DiskLruCache mDiskLruCache;
     
-    private ImageCacheHelper(Context context) {
+    private ImageCacheHelper(Context context,Handler handler) {
     	initDiskCache(context);
+    	mHandler = handler;
     }
 
-	public static ImageCacheHelper iniInstance(Context context) {
+	public static ImageCacheHelper iniInstance(Context context,Handler handler) {
     	if (sImageCacheHelper == null) {
     		synchronized(ImageCacheHelper.class) {
     			if (sImageCacheHelper == null) {
-    				sImageCacheHelper = new ImageCacheHelper(context);
+    				sImageCacheHelper = new ImageCacheHelper(context,handler);
     			}
     		}
     	}
@@ -90,6 +94,11 @@ public class ImageCacheHelper {
 			in = new BufferedInputStream(urlConnetion.getInputStream(),8 * 1024);
 			out = new BufferedOutputStream(outputStream, 8 * 1024);
 			
+//			Bitmap bitmap = BitmapFactory.decodeStream(in);
+//			Message msg = Message.obtain();
+//			msg.what = MainActivity.REFRESH_MSG;
+//			msg.obj = bitmap;
+//			mHandler.sendMessage(msg);
 			int b;
 			while((b = in.read()) != -1) {
 				out.write(b);
