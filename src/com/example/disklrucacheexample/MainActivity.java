@@ -8,40 +8,23 @@ import android.os.Message;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
-import android.widget.ImageView;
+import android.widget.GridView;
 
 public class MainActivity extends Activity {
     private static final String TAG = "MainActivity";
-	private ImageView image;
-	private static final String IMAGE_URL = "http://img.my.csdn.net/uploads/201309/01/1378037235_7476.jpg";
+	private GridView mGridView;
+	private static final String IMAGE_URL = "http://img.hb.aicdn.com/8f0355999f4f61d2b379aee7f09d9f99213eaa9c14ad9-2PeDy9_fw658";
+	
 	public static final int REFRESH_MSG = 0x11;
-	private Handler mHandler;
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.activity_main);
-		image = (ImageView) this.findViewById(R.id.image);
+		mGridView = (GridView)this.findViewById(R.id.grid);
 		
-		mHandler = new Handler(this.getMainLooper()) {
-	        @Override
-	        public void handleMessage(Message msg) {
-	            if (msg != null) {
-	                image.setImageBitmap((Bitmap)msg.obj);
-	            }
-	        }
-		    
-		};
-		
-		ImageCacheHelper cacheHelper = ImageCacheHelper.iniInstance(this.getApplicationContext(),mHandler);
-		Bitmap bitmap = cacheHelper.getBitmap(IMAGE_URL);
-		Log.i(TAG,"onCreate bitmap = " + bitmap);
-		if (bitmap == null) {
-		    cacheHelper.downLoadBitmap(IMAGE_URL);
-		} else {
-		    image.setImageBitmap(bitmap);
-		}
-		
+		GridViewAdapter adapter = new GridViewAdapter(this,Images.imageThumbUrls);
+		mGridView.setAdapter(adapter);		
 	}
 
 	@Override

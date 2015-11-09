@@ -11,6 +11,8 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import android.content.Context;
 import android.content.pm.PackageInfo;
@@ -21,27 +23,46 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Message;
 import android.util.Log;
+import android.util.LruCache;
 
 public class ImageCacheHelper {
     private static final String TAG = "ImageCacheHelper";
     private static final long DEFAULT_CACHE_MOUNT = 10 * 1024 * 1024;
     private static final String BITMAP_TYPE = "bitmap";
     private static final String ALGORITHM_MD5 = "MD5";
-    private Handler mHandler;
 
     private static ImageCacheHelper sImageCacheHelper;
     private DiskLruCache mDiskLruCache;
+    private LruCache mMemoryCache;
+    private Context mContext;
+    /** 
+     * 下载Image的线程池 
+     */  
+    private ExecutorService mImageThreadPool = null;
     
-    private ImageCacheHelper(Context context,Handler handler) {
+    private ImageCacheHelper(Context context) {
+    	initLruCache(context);
     	initDiskCache(context);
-    	mHandler = handler;
+    	mImageThreadPool = Executors.newFixedThreadPool(3);
+    	mContext = context;
     }
 
-	public static ImageCacheHelper iniInstance(Context context,Handler handler) {
+	private void initLruCache(Context context) {
+		int maxSize = (int)Runtime.getRuntime().maxMemory() / 8;
+	    mMemoryCache = new LruCache<String,Bitmap>(maxSize) {
+
+			@Override
+			protected int sizeOf(String key, Bitmap value) {
+				return value.getRowBytes() * value.getHeight();
+			}
+	    };
+	}
+
+	public static ImageCacheHelper iniInstance(Context context) {
     	if (sImageCacheHelper == null) {
     		synchronized(ImageCacheHelper.class) {
     			if (sImageCacheHelper == null) {
-    				sImageCacheHelper = new ImageCacheHelper(context,handler);
+    				sImageCacheHelper = new ImageCacheHelper(context);
     			}
     		}
     	}
@@ -58,9 +79,17 @@ public class ImageCacheHelper {
 		}
 	}
 	
-    public void downLoadBitmap (final String imageUrl) {
-    	new Thread(){
-
+    public void downLoadBitmap (final String imageUrl,final OnLoadUrlFinish listener) {
+		final Handler handler = new Handler(mContext.getMainLooper()) {
+	        @Override
+	        public void handleMessage(Message msg) {
+	            if (msg != null) {
+	            	listener.onLoadFinish((Bitmap)msg.obj,imageUrl);
+	            }
+	        }
+		};
+		
+    	Runnable run = new Runnable() {
 			@Override
 			public void run() {
 				try {
@@ -68,7 +97,7 @@ public class ImageCacheHelper {
 					DiskLruCache.Editor editor = mDiskLruCache.edit(key);
 					if (editor != null) {
 						OutputStream outputStream = editor.newOutputStream(0);
-						if (downloadUrlToStream(imageUrl, outputStream)) {
+						if (downloadUrlToStream(imageUrl, outputStream,handler)) {
 							editor.commit();
 						} else {
 							editor.abort();
@@ -80,10 +109,11 @@ public class ImageCacheHelper {
 				}
 			}
     		
-    	}.start();
+    	};
+    	mImageThreadPool.execute(run);
     }
     
-    private boolean downloadUrlToStream(String urlString,OutputStream outputStream) {
+    private boolean downloadUrlToStream(String urlString,OutputStream outputStream,Handler handler) {
     	HttpURLConnection urlConnetion = null;
     	BufferedOutputStream out = null;
     	BufferedInputStream in = null;
@@ -91,14 +121,12 @@ public class ImageCacheHelper {
     	try {
 			final URL url = new URL(urlString);
 			urlConnetion = (HttpURLConnection) url.openConnection();
+			Bitmap bitmap = BitmapFactory.decodeStream(urlConnetion.getInputStream());
+			refreshUi(bitmap,handler);
+			addBitmapToMemoryCache(urlString,bitmap);
+			
 			in = new BufferedInputStream(urlConnetion.getInputStream(),8 * 1024);
 			out = new BufferedOutputStream(outputStream, 8 * 1024);
-			
-//			Bitmap bitmap = BitmapFactory.decodeStream(in);
-//			Message msg = Message.obtain();
-//			msg.what = MainActivity.REFRESH_MSG;
-//			msg.obj = bitmap;
-//			mHandler.sendMessage(msg);
 			int b;
 			while((b = in.read()) != -1) {
 				out.write(b);
@@ -127,7 +155,14 @@ public class ImageCacheHelper {
     	return false;
     }
 
-    private String hashKeyForDisk(String key) {
+	private void refreshUi(Bitmap bitmap, Handler handler) {
+		Message msg = Message.obtain();
+		msg.what = MainActivity.REFRESH_MSG;
+		msg.obj = bitmap;
+		handler.sendMessage(msg);
+	}
+
+	private String hashKeyForDisk(String key) {
     	String cacheKey;
     	try {
 			MessageDigest mDigest = MessageDigest.getInstance(ALGORITHM_MD5);
@@ -152,7 +187,7 @@ public class ImageCacheHelper {
 		return sb.toString();
 	}
     
-    public Bitmap getBitmap(String imageUrl) {
+    public Bitmap getBitmapFromDisk(String imageUrl) {
         Bitmap bitmap = null;
     	try {
     	    String key = hashKeyForDisk(imageUrl);
@@ -168,4 +203,22 @@ public class ImageCacheHelper {
         
     	return bitmap;
     }
+    
+    //添加Bitmap到内存缓存
+    public void addBitmapToMemoryCache(String key,Bitmap value) {
+    	if (getBitmapFromMemoryCache(key) == null && value != null) {
+    		mMemoryCache.put(key, value);
+    	}
+    }
+
+    //从内存缓冲获取一个Bitmap
+    public Bitmap getBitmapFromMemoryCache(String key) {
+		return (Bitmap) mMemoryCache.get(key);
+	}
+
+	public void cancelDownLoad() {
+		if (mImageThreadPool != null) {
+			mImageThreadPool.shutdown();
+		}
+	}
 }
