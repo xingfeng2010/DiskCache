@@ -3,6 +3,8 @@ package com.example.disklrucacheexample;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.FileDescriptor;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -13,6 +15,9 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+
+import libcore.io.DiskLruCache;
+import libcore.io.DiskLruCache.Snapshot;
 
 import android.content.Context;
 import android.content.pm.PackageInfo;
@@ -43,10 +48,17 @@ public class ImageCacheHelper {
     private ImageCacheHelper(Context context) {
     	initLruCache(context);
     	initDiskCache(context);
-    	mImageThreadPool = Executors.newFixedThreadPool(3);
     	mContext = context;
     }
 
+    public ExecutorService getImageThreadPool() {
+    	if (mImageThreadPool == null) {
+    		mImageThreadPool = Executors.newFixedThreadPool(3);
+    	}
+    	
+    	return mImageThreadPool;
+    }
+    
 	private void initLruCache(Context context) {
 		int maxSize = (int)Runtime.getRuntime().maxMemory() / 8;
 	    mMemoryCache = new LruCache<String,Bitmap>(maxSize) {
@@ -72,8 +84,12 @@ public class ImageCacheHelper {
 
     private void initDiskCache(Context context) {
     	try {
-			mDiskLruCache = DiskLruCache.open(Util.getDiskCacheDir(context, BITMAP_TYPE), 
-					Util.getAppVersion(context), 1, DEFAULT_CACHE_MOUNT);
+			// 获取图片缓存路径
+			File cacheDir = ImageUtil.getDiskCacheDir(context, BITMAP_TYPE);
+			if (!cacheDir.exists()) {
+				cacheDir.mkdirs();
+			}
+			mDiskLruCache = DiskLruCache.open(cacheDir,ImageUtil.getAppVersion(context), 1, DEFAULT_CACHE_MOUNT);
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -92,25 +108,49 @@ public class ImageCacheHelper {
     	Runnable run = new Runnable() {
 			@Override
 			public void run() {
+	    	    FileDescriptor fileDescriptor = null;
+	    	    FileInputStream fileInputStream = null;
+	    	    Snapshot snapShot = null;
+	    	    Bitmap bitmap = null;
 				try {
 		    		String key = hashKeyForDisk(imageUrl);
-					DiskLruCache.Editor editor = mDiskLruCache.edit(key);
-					if (editor != null) {
+		    		snapShot = mDiskLruCache.get(key);
+		    	    Log.i(TAG,"getBitmapFromDisk snapShot:"+snapShot);
+					if (snapShot == null) {
+						DiskLruCache.Editor editor = mDiskLruCache.edit(key);
 						OutputStream outputStream = editor.newOutputStream(0);
 						if (downloadUrlToStream(imageUrl, outputStream,handler)) {
 							editor.commit();
 						} else {
 							editor.abort();
 						}
+						// 缓存被写入后，再次查找key对应的缓存
+						snapShot = mDiskLruCache.get(key);
 					}
-					mDiskLruCache.flush();
+					
+		    	    if (snapShot != null) {
+		    	    	fileInputStream = (FileInputStream)snapShot.getInputStream(0);
+		    	        fileDescriptor = fileInputStream.getFD();
+		    	    }
+		    	    Log.i(TAG,"getBitmapFromDisk fileDescriptor:"+fileDescriptor);
+		    	    if (fileDescriptor != null) {
+		    	    	bitmap = BitmapFactory.decodeFileDescriptor(fileDescriptor);
+		    	    }
+		    	    
+		    	    if (bitmap != null) {
+		    			//Bitmap bitmap = BitmapFactory.decodeStream(urlConnetion.getInputStream());
+		    			refreshUi(bitmap,handler);
+		    			addBitmapToMemoryCache(imageUrl,bitmap);
+		    	    }
+		    	    Log.i(TAG,"getBitmapFromDisk bitmap:"+bitmap);
+					//mDiskLruCache.flush();
 				} catch (IOException e) {
 					e.printStackTrace();
 				}
 			}
     		
     	};
-    	mImageThreadPool.execute(run);
+    	getImageThreadPool().execute(run);
     }
     
     private boolean downloadUrlToStream(String urlString,OutputStream outputStream,Handler handler) {
@@ -121,10 +161,7 @@ public class ImageCacheHelper {
     	try {
 			final URL url = new URL(urlString);
 			urlConnetion = (HttpURLConnection) url.openConnection();
-			Bitmap bitmap = BitmapFactory.decodeStream(urlConnetion.getInputStream());
-			refreshUi(bitmap,handler);
-			addBitmapToMemoryCache(urlString,bitmap);
-			
+			//Bitmap bitmap = ImageUtil.decodeSampledBitmapFromStream(urlConnetion.getInputStream(),135,150);
 			in = new BufferedInputStream(urlConnetion.getInputStream(),8 * 1024);
 			out = new BufferedOutputStream(outputStream, 8 * 1024);
 			int b;
@@ -156,6 +193,7 @@ public class ImageCacheHelper {
     }
 
 	private void refreshUi(Bitmap bitmap, Handler handler) {
+		Log.i(TAG,"refreshUi bitmap : " + bitmap);
 		Message msg = Message.obtain();
 		msg.what = MainActivity.REFRESH_MSG;
 		msg.obj = bitmap;
@@ -187,23 +225,6 @@ public class ImageCacheHelper {
 		return sb.toString();
 	}
     
-    public Bitmap getBitmapFromDisk(String imageUrl) {
-        Bitmap bitmap = null;
-    	try {
-    	    String key = hashKeyForDisk(imageUrl);
-    	    DiskLruCache.Snapshot snapShot = mDiskLruCache.get(key);
-    	    if (snapShot != null) {
-    	        InputStream is = snapShot.getInputStream(0);
-    	        bitmap = BitmapFactory.decodeStream(is);
-    	    }
-    	} catch (IOException e) {
-    	    e.printStackTrace();
-    	}
-        
-        
-    	return bitmap;
-    }
-    
     //添加Bitmap到内存缓存
     public void addBitmapToMemoryCache(String key,Bitmap value) {
     	if (getBitmapFromMemoryCache(key) == null && value != null) {
@@ -219,6 +240,20 @@ public class ImageCacheHelper {
 	public void cancelDownLoad() {
 		if (mImageThreadPool != null) {
 			mImageThreadPool.shutdown();
+			mImageThreadPool = null;
+		}
+	}
+	
+	/**
+	 * 将缓存记录同步到journal文件中。
+	 */
+	public void fluchCache() {
+		if (mDiskLruCache != null) {
+			try {
+				mDiskLruCache.flush();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
 		}
 	}
 }

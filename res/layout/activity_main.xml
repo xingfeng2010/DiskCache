@@ -12,9 +12,11 @@
         android:id="@+id/grid"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:numColumns="3"
+        android:numColumns="auto_fit"
         android:columnWidth="90dp"
-        android:horizontalSpacing="10dp"
+        android:horizontalSpacing="10dip"
+        android:cacheColorHint="@android:color/transparent"
+        android:stretchMode="columnWidth"
     />
 
 </RelativeLayout>

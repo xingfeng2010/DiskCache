@@ -23,7 +23,7 @@ public class MainActivity extends Activity {
 		setContentView(R.layout.activity_main);
 		mGridView = (GridView)this.findViewById(R.id.grid);
 		
-		GridViewAdapter adapter = new GridViewAdapter(this,Images.imageThumbUrls);
+		GridViewAdapter adapter = new GridViewAdapter(this,Images.imageThumbUrls2,mGridView);
 		mGridView.setAdapter(adapter);		
 	}
 
@@ -44,5 +44,17 @@ public class MainActivity extends Activity {
 			return true;
 		}
 		return super.onOptionsItemSelected(item);
+	}
+
+	@Override
+	protected void onDestroy() {
+		ImageCacheHelper.iniInstance(this).cancelDownLoad();
+		super.onDestroy();
+	}
+
+	@Override
+	protected void onPause() {
+		super.onPause();
+		ImageCacheHelper.iniInstance(this).fluchCache();
 	}
 }
